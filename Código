@@ -1,0 +1,81 @@
+from googleapiclient.discovery import build
+import isodate
+from bs4 import BeautifulSoup
+from selenium.webdriver.common.by import By
+import time
+from selenium import webdriver
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.chrome.options import Options
+from pydub import AudioSegment
+from pydub.playback import play
+import urllib.request
+import io
+
+# Chave de API do YouTube
+YOUTUBE_API_KEY = 'AIzaSyDb__KaJ1TjrEAPVT32e4XUilswiRpmZ_E'
+
+youtube = build('youtube', 'v3', developerKey=YOUTUBE_API_KEY)
+
+def main():
+    Categoria_Autor = str(input("Voce quer ouvir musicas de qual categoria/autor? "))
+    global driver
+    chrome_options = Options()
+    chrome_options.add_argument("--headless")
+    driver = webdriver.Chrome()
+    return Categoria_Autor
+
+def pesquisa(main):
+    PequenaPesquisa = main()
+    driver.get("https://www.youtube.com/results?search_query="+"musicas "+PequenaPesquisa)
+    time.sleep(8)
+    soup = BeautifulSoup(driver.page_source, 'html.parser')
+    video_links = [link.get('href') for link in soup.find_all('a', id='thumbnail') if link.get('href') and '/watch' in link.get('href') and '/live' not in link.get('href')]
+    return video_links
+
+def tocar(pesquisa):
+    video_links = pesquisa(main)
+    if len(video_links) < 3:
+        print("Nao foram encontrados videos suficientes")
+        return
+    video_links = video_links[2:]
+    for link in video_links:
+        # Acessa o link do vídeo
+        driver.get(f'https://www.youtube.com{link}')
+        time.sleep(6)
+        
+        # Tenta pular o anúncio, se houver
+        try:
+            wait = WebDriverWait(driver, 10)
+            skip_button = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, '.ytp-ad-skip-button.ytp-button')))
+            skip_button.click()
+        except:
+            pass
+        
+        # Extrai o ID do vídeo do link
+        split_link = link.split('=')
+        if len(split_link) < 2:
+           print(f"Nao foi possivel extrair o ID do video do link: {link}")
+           continue
+        video_id = split_link[1].split('&')[0]
+        
+        # Armazena os detalhes do vídeo
+        video_response = youtube.videos().list(
+            part='contentDetails',
+            id=video_id
+        ).execute()
+
+        # Obtem a duração do vídeo em segundos
+        if not video_response['items']:
+             print(f"Nenhum detalhe de video encontrado para o ID do video: {video_id}")
+             continue
+        duration = isodate.parse_duration(video_response['items'][0]['contentDetails']['duration']).total_seconds()
+
+        # Toca a música utilizando o pydub
+        audio_url = f'http://www.youtubeinmp3.com/fetch/?video=https://www.youtube.com/watch?v={video_id}'
+        response = urllib.request.urlopen(audio_url)
+        data = response.read()
+        audio = AudioSegment.from_file(io.BytesIO(data), format="mp3")
+        play(audio)
+
+tocar(pesquisa)
